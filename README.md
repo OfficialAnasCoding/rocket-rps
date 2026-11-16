@@ -149,6 +149,36 @@ What to notice:
 So the solved strategy is the safest one, and a strategy that learns is the one
 that wins a tournament of imperfect players.
 
+## Graphs and GIFs
+
+```
+python -m rocket_rps.plots                         # everything, into figures/
+python -m rocket_rps.plots --replay Optimal Random # one extra match replay
+python -m rocket_rps.plots --no-gifs               # still images only
+```
+
+**The solved strategy through a match** (Optimal against Optimal, averaged over
+300 matches). Both players fire rockets at 1/6 per round until they run out,
+around round 600 to 700. Because the opponent is spending rockets just as fast,
+the threat never builds up, and water is almost never played.
+
+![Strategy through a match](figures/strategy_through_match.png)
+
+**How much water the solved strategy plays** in every situation. Water only
+appears when the opponent holds many rockets compared with the rounds left.
+The GIF steps from 1000 rounds left down to 1.
+
+![Water heatmap](figures/water_heatmap.gif)
+
+**Match replays** show the lead, the rockets left and the water played, round
+by round. Here RocketsLate saves all 100 rockets for the end, and Optimal
+answers with water.
+
+![Optimal v RocketsLate](figures/replay_Optimal_v_RocketsLate.gif)
+
+`figures/` also holds replays of Adaptive v RocketsLate, Pattern v BeatLast and
+Adaptive v Pattern, each as a still image and a slow GIF (4 frames a second).
+
 ## Files
 
 ```
@@ -157,7 +187,9 @@ rocket_rps/solver.py      exact solution by backward induction
 rocket_rps/bots.py        the bots
 BOTS.md                   how each bot's strategy works
 rocket_rps/tournament.py  round-robin tournament, tables, CSV files, heatmap
+rocket_rps/plots.py       strategy graphs, match replays and GIFs
 rocket_rps/play.py        play a bot in the terminal, or look up one situation
 tests/                    checks of the rules, the solver and the bots
 results/                  output of one full tournament
+figures/                  graphs and GIFs from plots.py
 ```
