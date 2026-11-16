@@ -164,11 +164,19 @@ the threat never builds up, and water is almost never played.
 
 ![Strategy through a match](figures/strategy_through_match.png)
 
-**How much water the solved strategy plays** in every situation. Water only
-appears when the opponent holds many rockets compared with the rounds left.
-The GIF steps from 1000 rounds left down to 1.
+**When the solved strategy plays water.** The answer depends on only two
+things: how many rockets the opponent still has, and how many rounds are left.
+(My own rockets make no difference.) The dashed line is *rockets = rounds left
+÷ 6*, the most rockets a player can expect to fire at 1 in 6 per round. Below
+the line the opponent has time to use every rocket, so there is nothing to
+defend against. Above it they are holding more than they can use, so they must
+fire more often, and water goes up to half the time.
 
-![Water heatmap](figures/water_heatmap.gif)
+![When the solved strategy plays water](figures/water_map.png)
+
+The GIF shows the same rule as a curve that slides left as the rounds run out.
+
+![Water curve](figures/water_curve.gif)
 
 **Match replays** show the lead, the rockets left and the water played, round
 by round. Here RocketsLate saves all 100 rockets for the end, and Optimal

@@ -109,53 +109,84 @@ def strategy_through_match(solution, out_dir, matches=300):
 # 2. Water rate as a heatmap over both rocket counts
 # ---------------------------------------------------------------------------
 
-def _water_grid(solution, n):
-    return solution.policy[n, :, :, 1]   # [my rockets, their rockets]
+def _water_curve(solution, n):
+    """Chance of water against each number of opponent rockets, with n rounds left.
+
+    The solved water rate does not depend on my own rockets at all, so one row
+    is the whole picture.
+    """
+    return solution.policy[n, 0, :, 1]
 
 
-def water_heatmap_stills(solution, out_dir):
+def water_map(solution, out_dir):
+    """One picture of every situation: round on the x-axis, opponent's rockets on the y-axis."""
     rounds, rockets = solution.rounds, solution.rockets
-    picks = [rounds, rounds // 2, rounds // 5, rounds // 20]
-    fig, axes = plt.subplots(1, 4, figsize=(12, 3.7), sharey=True, layout="constrained")
-    for ax, n in zip(axes, picks):
-        im = ax.imshow(_water_grid(solution, n), origin="lower", cmap=WATER_MAP, vmin=0, vmax=0.5,
-                       extent=[0, rockets, 0, rockets], aspect="equal")
-        ax.set_title(f"{n} rounds left", fontsize=10, fontweight="normal")
-        ax.set_xlabel("opponent's rockets")
-        ax.grid(False)
-    axes[0].set_ylabel("my rockets")
-    fig.suptitle("How often the solved strategy plays water", x=0.01, ha="left", fontweight="bold", fontsize=12)
-    cb = fig.colorbar(im, ax=axes, shrink=0.9, pad=0.02)
-    cb.set_label("chance of water")
-    cb.ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    cb.outline.set_visible(False)
-    _save_png(fig, os.path.join(out_dir, "water_heatmap.png"))
-
-
-def water_heatmap_gif(solution, out_dir, frames=48):
-    rounds, rockets = solution.rounds, solution.rockets
-    ns = np.unique(np.round(np.geomspace(rounds, max(2, rockets // 20), frames)).astype(int))[::-1]
-    fig, ax = plt.subplots(figsize=(6.4, 5.6), dpi=100)
-    im = ax.imshow(_water_grid(solution, ns[0]), origin="lower", cmap=WATER_MAP, vmin=0, vmax=0.5,
-                   extent=[0, rockets, 0, rockets], aspect="equal")
+    grid = np.array([_water_curve(solution, n) for n in range(rounds, 0, -1)]).T   # [their rockets, round]
+    fig, ax = plt.subplots(figsize=(9, 4.8), layout="constrained")
+    im = ax.imshow(grid, origin="lower", cmap=WATER_MAP, vmin=0, vmax=0.5, aspect="auto",
+                   extent=[0, rounds, 0, rockets])
     ax.grid(False)
-    ax.set_xlabel("opponent's rockets")
-    ax.set_ylabel("my rockets")
-    cb = fig.colorbar(im, ax=ax, shrink=0.85)
-    cb.set_label("chance of playing water")
+    played = np.arange(0, rounds + 1)
+    ax.plot(played, (rounds - played) / 6, color=INK, linewidth=1.5, linestyle=(0, (4, 3)))
+    ax.set_ylim(0, rockets)
+    ax.text(0.30 * rounds, 0.30 * rockets, "No water needed:\nthe opponent has time to\nfire every rocket at 1 in 6",
+            ha="center", va="center", color=MUTED, fontsize=10)
+    ax.text(0.80 * rounds, 0.72 * rockets, "Water half the time:\nthe opponent has more rockets\nthan time to use them",
+            ha="center", va="center", color="white", fontsize=10)
+    ax.annotate("rockets = rounds left ÷ 6", xy=(0.64 * rounds, 0.36 * rounds / 6), xytext=(0.53 * rounds, 0.60 * rockets),
+                ha="right", va="center", color=INK, fontsize=10, arrowprops={"arrowstyle": "-", "color": INK, "linewidth": 1})
+    ax.set_xlabel("rounds played")
+    ax.set_ylabel("rockets the opponent still has")
+    ax.set_title("When the solved strategy plays water")
+    cb = fig.colorbar(im, ax=ax, pad=0.02)
+    cb.set_label("chance of playing water this round")
     cb.ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
     cb.outline.set_visible(False)
-    title = ax.set_title("")
+    _save_png(fig, os.path.join(out_dir, "water_map.png"))
+
+
+def water_curve_gif(solution, out_dir):
+    """The water rule as a moving curve: it slides left as the rounds run out."""
+    rounds, rockets = solution.rounds, solution.rockets
+    ns = [n for n in range(rounds, 0, -25)] + [10, 1]
+    x = np.arange(rockets + 1)
+    fig, ax = plt.subplots(figsize=(7.4, 4.6), dpi=100)
+    ax.set_xlim(0, rockets)
+    ax.set_ylim(0, 0.56)
+    ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
+    ax.set_xlabel("rockets the opponent still has")
+    ax.set_ylabel("chance I play water this round")
+    title = ax.set_title("When to play water")
+    line, = ax.plot([], [], color=C_WATER)
+    marker = ax.axvline(0, color=INK, linewidth=1.2, linestyle=(0, (4, 3)))
+    label = ax.text(0, 0.535, "", color=INK, fontsize=9, va="center")
+    fill = [None]
     fig.tight_layout()
 
     def draw(i):
         n = ns[min(i, len(ns) - 1)]
-        im.set_data(_water_grid(solution, n))
-        title.set_text(f"When to play water\n{n} rounds left")
-        return im, title
+        y = _water_curve(solution, n)
+        line.set_data(x, y)
+        if fill[0] is not None:
+            fill[0].remove()
+        fill[0] = ax.fill_between(x, 0, y, color=C_WATER, alpha=0.15, linewidth=0)
+        t = n / 6
+        marker.set_xdata([t, t])
+        marker.set_visible(t <= rockets)
+        if t <= rockets:
+            right = t < 0.6 * rockets
+            label.set_text(("  " if right else "") + f"rounds left ÷ 6 = {t:.0f}" + ("" if right else "  "))
+            label.set_x(t)
+            label.set_ha("left" if right else "right")
+        else:
+            label.set_text(f"rounds left ÷ 6 = {t:.0f}, more rockets than anyone has  ")
+            label.set_x(rockets)
+            label.set_ha("right")
+        title.set_text(f"When to play water: {n} rounds left")
+        return line, title
 
     _save_gif(FuncAnimation(fig, draw, frames=len(ns) + HOLD_FRAMES, blit=False),
-              os.path.join(out_dir, "water_heatmap.gif"))
+              os.path.join(out_dir, "water_curve.gif"))
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +303,9 @@ def main(argv=None):
         replay(solution, *args.replay, args.out, args.seed, gif=not args.no_gifs)
         return
     strategy_through_match(solution, args.out)
-    water_heatmap_stills(solution, args.out)
+    water_map(solution, args.out)
     if not args.no_gifs:
-        water_heatmap_gif(solution, args.out)
+        water_curve_gif(solution, args.out)
     for a, b in DEFAULT_REPLAYS:
         replay(solution, a, b, args.out, args.seed, gif=not args.no_gifs)
 
