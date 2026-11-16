@@ -29,7 +29,7 @@ which has dynamite and water balloons but scores every win as 1 point. The
 pip install -r requirements.txt
 
 python -m rocket_rps.tournament                   # full tournament, about 30 seconds
-python -m rocket_rps.tournament --matches 100     # more matches, less noise
+python -m rocket_rps.tournament --matches 1000 --jobs 4   # big run, about a minute
 python -m rocket_rps.tournament --rounds 100 --rockets 10
 
 python -m rocket_rps.play --lookup 300 70 50      # optimal strategy for one situation
@@ -39,7 +39,8 @@ python -m pytest                                  # run the checks
 ```
 
 The tournament prints a table of every pairing and a ranking, and saves
-`ranking.csv`, `matrix.csv`, `matches.csv` and `heatmap.png` in `results/`.
+`ranking.csv`, `matrix.csv`, `matrix_std_error.csv`, `matches.csv` and
+`heatmap.png` in `results/`.
 
 ## The bots
 
@@ -55,6 +56,8 @@ The tournament prints a table of every pairing and a ranking, and saves
 | **BeatLast** | Plays whatever would have beaten the opponent's previous move. |
 | **PlainRPS** | Ignores the special moves. |
 | **Random** | Picks uniformly from the legal moves. |
+
+Each bot's strategy is explained in detail in [BOTS.md](BOTS.md).
 
 To add your own, subclass `Bot` in `rocket_rps/bots.py`, implement
 `choose(view)`, and add it to `default_bots`.
@@ -93,35 +96,53 @@ Things the solution shows:
 
 ## Results
 
-`results/` holds one run of the full game (1000 rounds, 100 rockets, 30
-matches per pairing). The ranking by average lead per match:
+`results/` holds one run of the full game: 1000 rounds, 100 rockets and
+**1000 matches per pairing** (45,000 matches, 45 million rounds). The ranking
+by average lead per match:
 
-| # | Bot | Average lead | Matches won |
-|---|---|---|---|
-| 1 | Adaptive | +269 | 88% |
-| 2 | Pattern | +223 | 61% |
-| 3 | SpreadRockets | +62 | 84% |
-| 4 | Optimal | +12 | 57% |
-| 5 | OneRoundNash | −47 | 39% |
-| 6 | RocketsLate | −59 | 44% |
-| 7 | Random | −72 | 22% |
-| 8 | RocketsEarly | −86 | 34% |
-| 9 | PlainRPS | −124 | 24% |
-| 10 | BeatLast | −177 | 45% |
+| # | Bot | Average lead | ± error | Matches won |
+|---|---|---|---|---|
+| 1 | Adaptive | +269.4 | 0.3 | 90% |
+| 2 | Pattern | +226.0 | 0.3 | 62% |
+| 3 | SpreadRockets | +62.3 | 0.3 | 83% |
+| 4 | Optimal | +11.0 | 0.3 | 55% |
+| 5 | OneRoundNash | −46.7 | 0.4 | 39% |
+| 6 | RocketsLate | −57.4 | 0.3 | 46% |
+| 7 | Random | −72.3 | 0.4 | 22% |
+| 8 | RocketsEarly | −88.0 | 0.3 | 35% |
+| 9 | PlainRPS | −124.8 | 0.3 | 22% |
+| 10 | BeatLast | −179.6 | 0.3 | 44% |
+
+"± error" is one standard error. The true average is very likely within about
+twice that of the number shown. To reproduce:
+`python -m rocket_rps.tournament --matches 1000 --jobs 4` (about a minute).
+
+How Optimal did against each opponent (average lead ± error):
+
+| Opponent | Optimal's lead |
+|---|---|
+| Adaptive | +0.2 ± 0.9 |
+| Pattern | −0.7 ± 1.1 |
+| OneRoundNash | −1.8 ± 1.4 |
+| SpreadRockets | +0.7 ± 0.8 |
+| RocketsEarly | −0.3 ± 0.7 |
+| RocketsLate | −0.6 ± 1.1 |
+| BeatLast | +1.8 ± 1.0 |
+| PlainRPS | −0.6 ± 0.8 |
+| Random | +100.2 ± 1.0 |
 
 ![heatmap](results/heatmap.png)
 
 What to notice:
 
-- **Optimal never loses on average**, but it only wins clearly against Random,
-  which wastes water and rockets. Against everyone else it is about level. Its
-  small plus and minus numbers are luck: a single 1000-round match varies by
-  roughly ±30 points.
+- **Optimal never loses on average.** Against every bot except Random its
+  lead is within about two standard errors of zero, which is what the theory
+  predicts. It only wins clearly against Random, which wastes water and
+  rockets.
 - **Adaptive and Pattern win the tournament** by punishing predictable bots.
   BeatLast can be read perfectly, and loses by about 1000 points.
 - **Pattern is exploitable itself.** Adaptive beats it by about 200, while
-  Optimal holds it level. Adaptive only loses a few points to Optimal, which is
-  the price of testing an opponent that cannot be exploited.
+  Optimal holds it level. Adaptive is level with Optimal.
 - **OneRoundNash loses to simple bots**, because it plays water half the time
   from the first round, when rockets are still rare.
 
@@ -134,6 +155,7 @@ that wins a tournament of imperfect players.
 rocket_rps/game.py        rules, scoring and the match engine
 rocket_rps/solver.py      exact solution by backward induction
 rocket_rps/bots.py        the bots
+BOTS.md                   how each bot's strategy works
 rocket_rps/tournament.py  round-robin tournament, tables, CSV files, heatmap
 rocket_rps/play.py        play a bot in the terminal, or look up one situation
 tests/                    checks of the rules, the solver and the bots

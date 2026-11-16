@@ -1,7 +1,7 @@
 """Round-robin tournament between the bots.
 
     python -m rocket_rps.tournament                 # full game: 1000 rounds, 100 rockets
-    python -m rocket_rps.tournament --matches 50    # more matches per pairing
+    python -m rocket_rps.tournament --matches 1000 --jobs 4   # big run, less noise
     python -m rocket_rps.tournament --rounds 100 --rockets 10
 """
 from __future__ import annotations
@@ -17,26 +17,44 @@ from .game import play_match
 from .solver import load_or_solve
 
 
-def run_tournament(bots, rounds=1000, rockets=100, matches=20, seed=0, verbose=True):
+def _play_pairing(job):
+    i, j, rounds, rockets, matches, seed = job
+    a, b = _BOTS[i], _BOTS[j]
+    base = seed * 1_000_003 + (i * len(_BOTS) + j) * 100_003
+    return i, j, [play_match(a, b, rounds, rockets, seed=base + m).diff for m in range(matches)]
+
+
+_BOTS = []
+
+
+def run_tournament(bots, rounds=1000, rockets=100, matches=20, seed=0, verbose=True, jobs=1):
     """Every bot plays every other bot `matches` times.
 
     Returns results[(i, j)] = list of score differences (bot i minus bot j).
+    With jobs > 1 the pairings are shared between that many processes.
     """
+    global _BOTS
+    _BOTS = bots
+    todo = [(i, j, rounds, rockets, matches, seed)
+            for i in range(len(bots)) for j in range(i + 1, len(bots))]
+    pool = None
+    if jobs > 1:
+        import multiprocessing as mp
+        try:
+            pool = mp.get_context("fork").Pool(jobs)   # fork shares the solved game
+        except ValueError:
+            print("(parallel runs need a system with fork; running on one process)")
+    outputs = pool.imap_unordered(_play_pairing, todo) if pool else map(_play_pairing, todo)
     results = {}
-    k = 0
-    for i, a in enumerate(bots):
-        for j, b in enumerate(bots):
-            if j <= i:
-                continue
-            diffs = []
-            for m in range(matches):
-                k += 1
-                diffs.append(play_match(a, b, rounds, rockets, seed=seed * 1_000_003 + k).diff)
-            results[(i, j)] = diffs
-            results[(j, i)] = [-d for d in diffs]
-            if verbose:
-                mean = sum(diffs) / len(diffs)
-                print(f"  {a.name:>14} v {b.name:<14} mean lead {mean:+8.1f}", flush=True)
+    for i, j, diffs in outputs:
+        results[(i, j)] = diffs
+        results[(j, i)] = [-d for d in diffs]
+        if verbose:
+            print(f"  {bots[i].name:>14} v {bots[j].name:<14} mean lead {mean(diffs):+8.1f} "
+                  f"± {stderr(diffs):.1f}", flush=True)
+    if pool:
+        pool.close()
+        pool.join()
     return results
 
 
@@ -68,8 +86,10 @@ def summarise(bots, results):
             pair_means[other.name] = mean(d)
         worst = min(pair_means, key=pair_means.get)
         best = max(pair_means, key=pair_means.get)
+        # Standard error of the overall average, treating each pairing as its own sample.
+        se = math.sqrt(sum(stderr(results[(i, j)]) ** 2 for j in range(len(bots)) if j != i)) / (len(bots) - 1)
         rows.append({
-            "bot": bot.name, "avg_lead": mean(all_diffs), "wins": wins, "draws": draws,
+            "bot": bot.name, "avg_lead": mean(all_diffs), "std_error": se, "wins": wins, "draws": draws,
             "losses": losses, "win_rate": wins / len(all_diffs),
             "best_vs": best, "best_lead": pair_means[best],
             "worst_vs": worst, "worst_lead": pair_means[worst],
@@ -79,11 +99,11 @@ def summarise(bots, results):
 
 
 def print_summary(rows):
-    print(f"\n{'#':>2} {'Bot':<14} {'Avg lead':>9} {'Won':>6} {'Best against':<22} {'Worst against':<22}")
+    print(f"\n{'#':>2} {'Bot':<14} {'Avg lead':>9} {'± error':>8} {'Won':>6} {'Best against':<22} {'Worst against':<22}")
     for k, r in enumerate(rows, 1):
         best = f"{r['best_vs']} ({r['best_lead']:+.0f})"
         worst = f"{r['worst_vs']} ({r['worst_lead']:+.0f})"
-        print(f"{k:>2} {r['bot']:<14} {r['avg_lead']:>+9.1f} {r['win_rate']:>6.0%} {best:<22} {worst:<22}")
+        print(f"{k:>2} {r['bot']:<14} {r['avg_lead']:>+9.1f} {r['std_error']:>8.1f} {r['win_rate']:>6.0%} {best:<22} {worst:<22}")
 
 
 def print_matrix(bots, results):
@@ -107,6 +127,12 @@ def save_csv(bots, results, rows, out_dir):
         w.writerow(["bot"] + [b.name for b in bots])
         for i, a in enumerate(bots):
             w.writerow([a.name] + ["" if i == j else round(mean(results[(i, j)]), 2)
+                                   for j in range(len(bots))])
+    with open(os.path.join(out_dir, "matrix_std_error.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["bot"] + [b.name for b in bots])
+        for i, a in enumerate(bots):
+            w.writerow([a.name] + ["" if i == j else round(stderr(results[(i, j)]), 2)
                                    for j in range(len(bots))])
     with open(os.path.join(out_dir, "matches.csv"), "w", newline="") as f:
         w = csv.writer(f)
@@ -156,6 +182,7 @@ def main(argv=None):
     ap.add_argument("--rockets", type=int, default=100)
     ap.add_argument("--matches", type=int, default=20, help="matches per pairing")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--jobs", type=int, default=1, help="processes to use (speeds up big runs)")
     ap.add_argument("--out", default="results", help="folder for CSV files and the heatmap")
     ap.add_argument("--no-cache", action="store_true", help="do not save the solved game to disk")
     args = ap.parse_args(argv)
@@ -165,7 +192,7 @@ def main(argv=None):
     print(f"Solution ready ({time.time() - t:.1f}s). Playing {args.matches} matches per pairing "
           f"of {args.rounds} rounds with {args.rockets} rockets each.\n")
     bots = default_bots(solution)
-    results = run_tournament(bots, args.rounds, args.rockets, args.matches, args.seed)
+    results = run_tournament(bots, args.rounds, args.rockets, args.matches, args.seed, jobs=args.jobs)
     rows = summarise(bots, results)
     print_matrix(bots, results)
     print_summary(rows)
@@ -173,7 +200,9 @@ def main(argv=None):
     save_heatmap(bots, results, rows, os.path.join(args.out, "heatmap.png"),
                  f"Rocket RPS: {args.rounds} rounds, {args.rockets} rockets, "
                  f"{args.matches} matches per pairing")
-    print(f"\nSaved ranking.csv, matrix.csv, matches.csv and heatmap.png in {args.out}/ "
+    print("\nEach '± error' is one standard error: the true average is very likely within "
+          "about twice that of the number shown.")
+    print(f"\nSaved ranking.csv, matrix.csv, matrix_std_error.csv, matches.csv and heatmap.png in {args.out}/ "
           f"({time.time() - t:.0f}s in total)")
 
 
